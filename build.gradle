@@ -1,6 +1,9 @@
 plugins {
-    id 'org.jetbrains.kotlin.jvm' version '2.1.20'
+    id 'org.jetbrains.kotlin.jvm' version '2.2.20'
     id 'application'
+    id 'maven-publish'
+    id 'java-library'
+    id 'org.jetbrains.dokka' version '1.9.20'
 }
 
 group = 'pt.rafap'
@@ -10,19 +13,90 @@ repositories {
     mavenCentral()
 }
 
+application {
+    mainClass = 'pt.rafap.MainKt' // ajusta conforme o teu ficheiro Main.kt
+}
+
 dependencies {
-    testImplementation 'org.jetbrains.kotlin:kotlin-test'
     implementation 'org.jetbrains.kotlin:kotlin-stdlib'
+    implementation "io.github.microutils:kotlin-logging:3.0.5"
+    implementation "ch.qos.logback:logback-classic:1.4.11"
+    testImplementation 'org.jetbrains.kotlin:kotlin-test'
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
 }
 
 test {
     useJUnitPlatform()
 }
 
-application {
-    mainClass = 'ExemploKt' 
+sourceSets {
+    main {
+        java.srcDirs += ["src/main/kotlin"]
+        resources.srcDirs += ["src/main/resources"]
+    }
+
+    example {
+        java.srcDirs += ["src/example/kotlin"]
+        resources.srcDirs += ["src/example/resources"]
+        compileClasspath += sourceSets.main.output + configurations.runtimeClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+
+    test {
+        java.srcDirs += ["src/test/kotlin"]
+        resources.srcDirs += ["src/test/resources"]
+        compileClasspath += sourceSets.main.output + configurations.runtimeClasspath
+        runtimeClasspath += output + compileClasspath
+    }
 }
 
-kotlin {
-    jvmToolchain(21)
+// --- PIPELINE CONTROLADO ---
+// garante que os testes passam antes de empacotar ou publicar
+
+
+// garante que os testes correm antes do build completo
+tasks.named("build") {
+    dependsOn("check")        // já tinhas
+    dependsOn("dokkaJavadoc") // gera documentação na build
+    mustRunAfter("check")
+    ignoreExitValue = true
 }
+
+
+tasks.named("check") {
+    dependsOn("test")    // check inclui testes
+}
+
+tasks.named("test") {
+    shouldRunAfter("classes") // compila antes de testar
+}
+
+tasks.register("buildLexer") {
+    group = "build"
+    description = "Rebuild do lexer após passar testes"
+
+    dependsOn("check", "jar") // só gera o jar se os testes passarem
+}
+
+tasks.register("runExample") {
+    group = "build"
+
+    mustRunAfter("buildLexer")
+    dependsOn("exampleClasses") // compila o exemplo antes de correr
+
+    doLast {
+        javaexec {
+            mainClass.set("pt.rafap.MainKt") // ajusta conforme o teu ficheiro Example.kt
+            classpath = sourceSets.example.runtimeClasspath
+
+            //standardOutput = System.out
+            //errorOutput = System.err
+            ignoreExitValue = true
+        }
+    }
+}
+
+tasks.named("processResources") {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
